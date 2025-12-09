@@ -2,11 +2,11 @@ name: build
 on:
   push:
     tags:
-      - "*" # build when you attach/push any tag to a commit
+      - "v*"  # build only when semantic version tags are pushed
   workflow_dispatch:
     inputs:
       channel:
-        description: 'Release channel to publish to when manually triggering. Use "beta" or "release".'
+        description: "Manual release channel: beta or release"
         required: true
         default: "beta"
 
@@ -14,70 +14,72 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      # Give the default GITHUB_TOKEN write permission to commit and push the changed files back to the repository.
       contents: write
     steps:
       - uses: actions/checkout@v3
         with:
-          fetch-depth: 0 # It's needed for git-restore-mtime
-      - name: Reset directories timestamp # Workaround for https://github.com/MestreLion/git-tools/issues/47
-        run: find . -mindepth 1 -type d -not -iwholename '*.git*' -exec touch -t 197001010000 {} \;
-      - name: Restore files timestamp
-        uses: chetan/git-restore-mtime-action@v2 # Restore files original modification time to have deterministic zip bundles
-      # - name: Setup upterm session
-      #   uses: lhotari/action-upterm@v1
-      - name: "Install FPSLocker patches"
+          fetch-depth: 0
+
+      - name: Restore file timestamps
+        uses: chetan/git-restore-mtime-action@v2
+
+      - name: Install FPSLocker patches
         working-directory: ./Sources/NXVenom
         run: |
           curl -L https://github.com/masagrator/FPSLocker-Warehouse/archive/refs/heads/v4.zip > patches.zip
           unzip patches.zip
           rm -rf SaltySD/plugins/FPSLocker/patches || true
-          # copy patches dir from the downloaded archive (adjust path if archive layout differs)
           cp -r FPSLocker-Warehouse-v4/patches SaltySD/plugins/FPSLocker/patches || true
           rm -rf patches.zip FPSLocker-Warehouse-v4 || true
-      - name: "Compile NXVenom"
+
+      - name: Compile NXVenom
         working-directory: ./Sources/NXVenom
         run: rm -rf ../../NXVenom.zip && zip -qqrX ../../NXVenom.zip ./
-      - name: "Compile AIO"
+
+      - name: Compile AIO
         working-directory: ./Sources/AIO
         run: rm -rf ../../AIO.zip && zip -qqrX ../../AIO.zip ./
-      - name: "Compile SC Wizard"
+
+      - name: Compile SC Wizard
         working-directory: ./Sources/NXVenom
-        run: rm -rf ../../SC\ Wizard.zip && zip -qqrX "../../SC Wizard.zip" "./switch/.packages/SC Wizard" ./switch/.overlays/ovlmenu.ovl
-      - name: "Compile packages"
+        run: rm -rf "../../SC Wizard.zip" && zip -qqrX "../../SC Wizard.zip" "./switch/.packages/SC Wizard" ./switch/.overlays/ovlmenu.ovl
+
+      - name: Compile packages
         working-directory: ./Sources/Tools/Uberhand Packages
-        run: rm -rf "RAM Patch.zip" && zip -qqrX "RAM Patch.zip" "RAM Patch" && rm -rf "TOTK UltraCam.zip" && zip -qqrX "TOTK UltraCam.zip" "TOTK UltraCam"
+        run: |
+          rm -rf "RAM Patch.zip" && zip -qqrX "RAM Patch.zip" "RAM Patch"
+          rm -rf "TOTK UltraCam.zip" && zip -qqrX "TOTK UltraCam.zip" "TOTK UltraCam"
 
       - uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "Build: Compile Bundle"
           file_pattern: "*.zip"
 
-      - name: Determine release tag and prerelease flag
+      - name: Determine release tag and channel
         id: tag
         run: |
-          # If this run was triggered by a tag push, use that tag name.
           if [ "${GITHUB_EVENT_NAME}" = "push" ] && [[ "${GITHUB_REF}" == refs/tags/* ]]; then
             TAG_NAME="${GITHUB_REF#refs/tags/}"
-            echo "Detected tag push: $TAG_NAME"
-            echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
+            echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+            if [[ "$TAG_NAME" == v* ]]; then CHANNEL="release"; else CHANNEL="beta"; fi
           else
-            # Manual run: use the input channel (beta/release)
             TAG_NAME="${{ github.event.inputs.channel }}"
-            echo "Manual dispatch, using channel: $TAG_NAME"
-            echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
+            echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+            CHANNEL="$TAG_NAME"
           fi
-          if [ "$TAG_NAME" = "beta" ]; then
-            echo "prerelease=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "prerelease=false" >> "$GITHUB_OUTPUT"
-          fi
+          echo "channel=$CHANNEL" >> $GITHUB_OUTPUT
 
-      - name: Create or update GitHub Release for tag
+      - name: Create or update Release
         uses: ncipollo/release-action@v1
         with:
-          tag: ${{ steps.tag.outputs.tag_name }} # set timestamp as name
-          name: ${{ github.run_number }} # set timestamp as release name
+          tag: ${{ steps.tag.outputs.tag_name }}
+          name: ${{ github.run_number }}
           makeLatest: true
-          prerelease: false #$ {{ steps.tag.outputs.prerelease }}
+          prerelease: ${{ steps.tag.outputs.channel == 'beta' }}
           artifacts: NXVenom.zip,AIO.zip
+
+      - name: Update channel tag (force push)
+        run: |
+          CHANNEL=${{ steps.tag.outputs.channel }}
+          git tag -f "$CHANNEL"
+          git push origin -f "refs/tags/$CHANNEL"
