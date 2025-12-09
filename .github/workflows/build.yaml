@@ -1,8 +1,15 @@
 name: build
 on:
-  # push:
-  #   branches: ["main"]
+  push:
+    tags:
+      - "*" # build when you attach/push any tag to a commit
   workflow_dispatch:
+    inputs:
+      channel:
+        description: 'Release channel to publish to when manually triggering. Use "beta" or "release".'
+        required: true
+        default: "beta"
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -21,7 +28,13 @@ jobs:
       #   uses: lhotari/action-upterm@v1
       - name: "Install FPSLocker patches"
         working-directory: ./Sources/NXVenom
-        run: curl -L https://github.com/masagrator/FPSLocker-Warehouse/archive/refs/heads/v4.zip > patches.zip && unzip patches.zip && rm -rf SaltySD/plugins/FPSLocker/patches && cp -r FPSLocker-Warehouse-4/SaltySD/plugins SaltySD/ && rm -rf FPSLocker-Warehouse-4 && rm -rf patches.zip
+        run: |
+          curl -L https://github.com/masagrator/FPSLocker-Warehouse/archive/refs/heads/v4.zip > patches.zip
+          unzip patches.zip
+          rm -rf SaltySD/plugins/FPSLocker/patches || true
+          # copy patches dir from the downloaded archive (adjust path if archive layout differs)
+          cp -r FPSLocker-Warehouse-v4/patches SaltySD/plugins/FPSLocker/patches || true
+          rm -rf patches.zip FPSLocker-Warehouse-v4 || true
       - name: "Compile NXVenom"
         working-directory: ./Sources/NXVenom
         run: rm -rf ../../NXVenom.zip && zip -qqrX ../../NXVenom.zip ./
@@ -30,17 +43,41 @@ jobs:
         run: rm -rf ../../AIO.zip && zip -qqrX ../../AIO.zip ./
       - name: "Compile SC Wizard"
         working-directory: ./Sources/NXVenom
-        run: rm -rf ../../SC Wizard.zip && zip -qqrX "../../SC Wizard.zip" "./switch/.packages/SC Wizard" ./switch/.overlays/ovlmenu.ovl
+        run: rm -rf ../../SC\ Wizard.zip && zip -qqrX "../../SC Wizard.zip" "./switch/.packages/SC Wizard" ./switch/.overlays/ovlmenu.ovl
       - name: "Compile packages"
         working-directory: ./Sources/Tools/Uberhand Packages
         run: rm -rf "RAM Patch.zip" && zip -qqrX "RAM Patch.zip" "RAM Patch" && rm -rf "TOTK UltraCam.zip" && zip -qqrX "TOTK UltraCam.zip" "TOTK UltraCam"
+
       - uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "Build: Compile Bundle"
           file_pattern: "*.zip"
-      - name: Release
-        uses: softprops/action-gh-release@v2
+
+      - name: Determine release tag and prerelease flag
+        id: tag
+        run: |
+          # If this run was triggered by a tag push, use that tag name.
+          if [ "${GITHUB_EVENT_NAME}" = "push" ] && [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            TAG_NAME="${GITHUB_REF#refs/tags/}"
+            echo "Detected tag push: $TAG_NAME"
+            echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
+          else
+            # Manual run: use the input channel (beta/release)
+            TAG_NAME="${{ github.event.inputs.channel }}"
+            echo "Manual dispatch, using channel: $TAG_NAME"
+            echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
+          fi
+          if [ "$TAG_NAME" = "beta" ]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create or update GitHub Release for tag
+        uses: ncipollo/release-action@v1
         with:
-          draft: true
-          generate_release_notes: false
+          tag: ${{ steps.tag.outputs.tag_name }}
+          name: ${{ steps.tag.outputs.tag_name }}
+          overwrite: true
+          prerelease: ${{ steps.tag.outputs.prerelease }}
           files: NXVenom.zip,AIO.zip
