@@ -76,8 +76,8 @@ jobs:
       - name: Create or update GitHub Release for tag
         uses: ncipollo/release-action@v1
         with:
-          tag: ${{ steps.tag.outputs.tag_name }}
-          name: ${{ steps.tag.outputs.tag_name }}
+          tag: ${{ steps.tag.outputs.tag_name }} # set timestamp as name
+          name: ${{ github.run_number }} # set timestamp as release name
           makeLatest: true
-          prerelease: ${{ steps.tag.outputs.prerelease }}
+          prerelease: false #$ {{ steps.tag.outputs.prerelease }}
           artefacts: NXVenom.zip,AIO.zip
