@@ -43,4 +43,4 @@ jobs:
         with:
           draft: true
           generate_release_notes: false
-          files: NXVenom.zip
+          files: NXVenom.zip,AIO.zip
