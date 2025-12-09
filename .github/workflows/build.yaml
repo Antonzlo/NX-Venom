@@ -78,6 +78,6 @@ jobs:
         with:
           tag: ${{ steps.tag.outputs.tag_name }}
           name: ${{ steps.tag.outputs.tag_name }}
-          overwrite: true
+          makeLatest: true
           prerelease: ${{ steps.tag.outputs.prerelease }}
-          files: NXVenom.zip,AIO.zip
+          artefacts: NXVenom.zip,AIO.zip
