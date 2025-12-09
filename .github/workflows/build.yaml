@@ -72,9 +72,10 @@ jobs:
       - name: Create or update Release
         uses: ncipollo/release-action@v1
         with:
-          tag: ${{ steps.tag.outputs.tag_name }}
-          name: ${{ github.run_number }}
+          tag: v${{ github.run_number }}
+          name: v${{ github.run_number }}
           makeLatest: true
+          allowUpdates: true
           prerelease: ${{ steps.tag.outputs.channel == 'beta' }}
           artifacts: NXVenom.zip,AIO.zip
 
